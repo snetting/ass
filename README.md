@@ -13,7 +13,7 @@ A simple tape-style encoder/decoder originally inspired by 8‑bit microcomputer
 * **Reed–Solomon (255, 223)** error correction (up to 16 byte-errors per block)
 * **CRC32** payload integrity check
 * **Live bit‑stream display** in console
-* **Read/write from WAV file or live audio input
+* **Read/write from WAV file or live audio input**
 
 ---
 
@@ -111,5 +111,5 @@ This code was partially generated and reviewed with the assistance of a large la
 ---
 
 *Have fun sending bits the old‑school way!*
-73 de OH3SPN / M0SPN / TCM^SLP
+*73 de OH3SPN / M0SPN / TCM^SLP*
 
