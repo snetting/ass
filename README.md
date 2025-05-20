@@ -50,7 +50,7 @@ chmod +x ass-reed.py
   ```bash
   ./ass-reed.py encode output.wav \
       --inputfile example.bin \
-      --bitrate 100
+      --bitrate 2400 
   ```
 
 * **Std‑in**:
@@ -58,7 +58,7 @@ chmod +x ass-reed.py
   ```bash
   cat example.txt | \
       ./ass-reed.py encode output.wav \
-      --bitrate 100
+      --bitrate 2400 
   ```
 
 * **Inline string**:
@@ -66,7 +66,7 @@ chmod +x ass-reed.py
   ```bash
   ./ass-reed.py encode output.wav \
       --data "Hello, world!" \
-      --bitrate 100
+      --bitrate 2400 
   ```
 
 ### Decoding
@@ -75,14 +75,14 @@ chmod +x ass-reed.py
 
   ```bash
   ./ass-reed.py decode input.wav \
-      --bitrate 100
+      --bitrate 2400 
   ```
 
 * **Live via microphone**:
 
   ```bash
   ./ass-reed.py decode - \
-      --bitrate 100
+      --bitrate 2400 
   ```
 
 Decoded output is written to the original filename in the current directory.
