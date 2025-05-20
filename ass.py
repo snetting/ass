@@ -212,12 +212,12 @@ def record_and_decode(bitrate):
         print("\nStopped listening.")
 
     full = np.concatenate(buf)
-    with wave.open('debug.wav','w') as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes(full.tobytes())
-    print("Saved debug.wav")
+    #with wave.open('debug.wav','w') as wf:
+    #    wf.setnchannels(1)
+    #    wf.setsampwidth(2)
+    #    wf.setframerate(SAMPLE_RATE)
+    #    wf.writeframes(full.tobytes())
+    #print("Saved debug.wav")
     print("Decoding...")
     decode_signal(full, bitrate)
 
