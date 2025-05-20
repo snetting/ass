@@ -12,7 +12,7 @@ from reedsolo import RSCodec, ReedSolomonError
 
 # Default config
 SAMPLE_RATE = 44100
-DEFAULT_BITRATE = 100  # bits per second
+DEFAULT_BITRATE = 1200  # bits per second
 
 # FSK frequencies
 FREQ_0 = 1200
