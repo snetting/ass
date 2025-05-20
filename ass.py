@@ -265,7 +265,8 @@ def record_and_decode(bitrate, mfsk):
                 else:
                     # compute symbol duration for MFSK
                     bits_per_symbol = int(math.log2(mfsk))
-                    sym_duration = bits_per_symbol * (1.0 / bitrate)
+                    #sym_duration = bits_per_symbol * (1.0 / bitrate)
+                    sym_duration   = 1.0 / bitrate
                     # get symbols then unpack to bits
                     symbols = detect_symbols(sig, sym_duration, SAMPLE_RATE, mfsk)
                     bits = symbols_to_bits(symbols, mfsk)
@@ -305,7 +306,8 @@ def encode(data: bytes, outfile: str, bitrate: int, mfsk: int = 2):
     # 2) MFSK parameters
     bit_duration    = 1.0 / bitrate
     bits_per_symbol = int(math.log2(mfsk))
-    sym_duration    = bits_per_symbol * bit_duration
+    #sym_duration    = bits_per_symbol * bit_duration
+    sym_duration    = bit_duration
     freqs           = get_mfsk_freqs(mfsk)
 
     # 3) Build raw bit-stream
@@ -367,11 +369,11 @@ def decode_signal(signal, bitrate, mfsk):
     print(f"[DECODE] Decoding {len(signal)} samples @ {bitrate}bps, {mfsk}-FSK")
     # 1) Demodulate to raw bits
     # decode symbols, then unpack to bits
-    bits_per_symbol = int(math.log2(mfsk))
-    sym_dur = bits_per_symbol * (1.0 / bitrate)
-    symbols = detect_symbols(signal, sym_dur, SAMPLE_RATE, mfsk=mfsk)
-    bits = symbols_to_bits(symbols, mfsk=mfsk)
-    print(f"[DECODE] Got {len(bits)} bits.")
+    #bits_per_symbol = int(math.log2(mfsk))
+    #sym_dur = bits_per_symbol * (1.0 / bitrate)
+    sym_dur         = 1.0 / bitrate
+    symbols         = detect_symbols(signal, sym_dur, SAMPLE_RATE, mfsk=mfsk)
+    bits            = symbols_to_bits(symbols, mfsk=mfsk)
 
     # 2) Find sync and trim
     start_idx = find_sync(bits)
