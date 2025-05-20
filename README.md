@@ -36,7 +36,7 @@ pip install numpy sounddevice reedsolo
 ```bash
 git clone https://github.com/snetting/ass.git
 cd ass
-chmod +x ass-reed.py
+chmod +x ass.py
 ```
 
 ---
@@ -48,7 +48,7 @@ chmod +x ass-reed.py
 * **File input**:
 
   ```bash
-  ./ass-reed.py encode output.wav \
+  ./ass.py encode output.wav \
       --inputfile example.bin \
       --bitrate 2400 
   ```
@@ -57,14 +57,14 @@ chmod +x ass-reed.py
 
   ```bash
   cat example.txt | \
-      ./ass-reed.py encode output.wav \
+      ./ass.py encode output.wav \
       --bitrate 2400 
   ```
 
 * **Inline string**:
 
   ```bash
-  ./ass-reed.py encode output.wav \
+  ./ass.py encode output.wav \
       --data "Hello, world!" \
       --bitrate 2400 
   ```
@@ -74,14 +74,14 @@ chmod +x ass-reed.py
 * **From file**:
 
   ```bash
-  ./ass-reed.py decode input.wav \
+  ./ass.py decode input.wav \
       --bitrate 2400 
   ```
 
 * **Live via microphone**:
 
   ```bash
-  ./ass-reed.py decode - \
+  ./ass.py decode - \
       --bitrate 2400 
   ```
 
