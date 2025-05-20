@@ -10,6 +10,7 @@ import zlib
 import lzma
 import time
 import datetime
+import math
 from reedsolo import RSCodec, ReedSolomonError
 
 # Default config
@@ -87,15 +88,14 @@ def rs_decode_blocks(data: bytes):
     }
     return bytes(out), stats
 
-def build_packet(filename: str, data: bytes, flags: int) -> bytes:
+def build_packet(filename: str, data: bytes, flags: int, stat_file: bool) -> bytes:
     """
     Build the packet header, now honours the `flags` argument.
     """
     filename_bytes = filename.encode()
     crc = zlib.crc32(data)
 
-    # Gather file metadata
-    try:
+    if stat_file and os.path.exists(filename):
         st = os.stat(filename)
         backup_ts = int(time.time())
         ctime     = int(st.st_ctime)
@@ -103,7 +103,8 @@ def build_packet(filename: str, data: bytes, flags: int) -> bytes:
         uid       = st.st_uid
         gid       = st.st_gid
         mode      = st.st_mode & 0o777
-    except Exception:
+    else:
+        # inline or missing file → zero metadata
         backup_ts = ctime = mtime = uid = gid = mode = 0
 
     header = (
@@ -158,6 +159,12 @@ def generate_tone(frequency, duration, sample_rate):
     tone = np.sin(2 * np.pi * frequency * t)
     return (32767 * tone).astype(np.int16)
 
+def get_mfsk_freqs(num_tones):
+    """Return a list of `num_tones` frequencies equally spaced between FREQ_0 and FREQ_1."""
+    if num_tones == 2:
+        return [FREQ_0, FREQ_1]
+    span = FREQ_1 - FREQ_0
+    return [FREQ_0 + i * span / (num_tones - 1) for i in range(num_tones)]
 
 def encode_bits(bits, bit_duration, sample_rate):
     signal = []
@@ -168,61 +175,43 @@ def encode_bits(bits, bit_duration, sample_rate):
     return np.array(signal, dtype=np.int16)
 
 
-def encode(data: bytes, outfile: str, bitrate: int):
-    # data here is your full packet (header+compressed payload)
-    print(f"[ENCODE] Packet size: {len(data)} bytes")
-    # Apply Reed–Solomon encoding
-    data_rs = rs_encode_blocks(data)
-    overhead = len(data_rs) - len(data)
-    print(f"[ENCODE] RS-encode: {len(data)} → {len(data_rs)} bytes (+{overhead} bytes parity)")
+def detect_symbols(signal, sym_duration, sample_rate, mfsk=2):
+    freqs = get_mfsk_freqs(mfsk)
+    samples_per_symbol = int(sample_rate * sym_duration)
+    symbols = []
 
-    bit_duration = 1.0 / bitrate
-    bits = PREAMBLE_BITS.copy()
-
-    # Sync word
-    SYNC_BITS = [(SYNC_WORD >> (31 - i)) & 1 for i in range(32)]
-    bits += SYNC_BITS
-
-    # Payload bits
-    for byte in data_rs:
-        for i in range(8):
-            bits.append((byte >> (7 - i)) & 1)
-
-    # End markers (×3)
-    END_BITS = [(END_MARKER_WORD >> (31 - i)) & 1 for i in range(32)]
-    bits += END_BITS * 3
-
-    # Silence
-    bits += [0] * 32
-
-    signal = encode_bits(bits, bit_duration, SAMPLE_RATE)
-
-    if outfile == '-':
-        print("Playing audio live...")
-        sd.play(signal / 32767.0, SAMPLE_RATE)
-        sd.wait()
-    else:
-        with wave.open(outfile, 'w') as wf:
-            wf.setnchannels(1)
-            wf.setsampwidth(2)
-            wf.setframerate(SAMPLE_RATE)
-            wf.writeframes(signal.tobytes())
-        print(f"Data encoded to {outfile}")
-
-
-def detect_bits(signal, bit_duration, sample_rate):
-    samples_per_bit = int(sample_rate * bit_duration)
-    bits = []
-    for i in range(0, len(signal), samples_per_bit):
-        chunk = signal[i:i + samples_per_bit]
-        if len(chunk) < samples_per_bit:
+    for i in range(0, len(signal), samples_per_symbol):
+        chunk = signal[i:i+samples_per_symbol]
+        if len(chunk) < samples_per_symbol:
             break
         fft = np.abs(np.fft.fft(chunk))
-        freqs = np.fft.fftfreq(len(chunk), 1 / sample_rate)
-        peak = abs(freqs[np.argmax(fft[:len(fft)//2])])
-        bits.append(1 if abs(peak - FREQ_1) < abs(peak - FREQ_0) else 0)
+        freqs_axis = np.fft.fftfreq(len(chunk), 1/sample_rate)
+        # find peak in positive half
+        half = len(fft)//2
+        peak_idx = np.argmax(fft[:half])
+        peak_freq = abs(freqs_axis[peak_idx])
+        # choose nearest tone
+        sym = min(range(mfsk), key=lambda x: abs(peak_freq - freqs[x]))
+        symbols.append(sym)
+
+    return symbols
+
+def symbols_to_bits(symbols, mfsk=2):
+    import math
+    bits_per_symbol = int(math.log2(mfsk))
+    bits = []
+    for sym in symbols:
+        for i in reversed(range(bits_per_symbol)):
+            bits.append((sym >> i) & 1)
     return bits
 
+def detect_bits(signal, bit_duration, sample_rate):
+    """
+    Wrapper for classic 2-tone FSK detection using the MFSK machinery.
+    """
+    # For mfsk=2, bits_per_symbol=1 so sym_duration = bit_duration
+    symbols = detect_symbols(signal, bit_duration, sample_rate, mfsk=2)
+    return symbols_to_bits(symbols, mfsk=2)
 
 def find_sync(bits):
     sync_bits = [(SYNC_WORD >> (31 - i)) & 1 for i in range(32)]
@@ -243,15 +232,14 @@ def bits_to_bytes(bits):
     return data
 
 
-def decode_wav(filename, bitrate):
-    print(f"[DECODE] Loading WAV: {filename} @ {bitrate}bps")
+def decode_wav(filename, bitrate, mfsk):
+    print(f"[DECODE] Loading WAV: {filename} @ {bitrate}bps, {mfsk}-FSK")
     with wave.open(filename, 'r') as wf:
         frames = wf.readframes(wf.getnframes())
         signal = np.frombuffer(frames, dtype=np.int16)
-    decode_signal(signal, bitrate)
+    decode_signal(signal, bitrate, mfsk)
 
-
-def record_and_decode(bitrate):
+def record_and_decode(bitrate, mfsk):
     import sounddevice as sd
     import numpy as np
     import wave
@@ -272,7 +260,16 @@ def record_and_decode(bitrate):
                 sig = (block_data[:,0] * 32767).astype(np.int16)
                 buf.append(sig)
 
-                bits = detect_bits(sig, 1/bitrate, SAMPLE_RATE)
+                if mfsk == 2:
+                    bits = detect_bits(sig, 1/bitrate, SAMPLE_RATE)
+                else:
+                    # compute symbol duration for MFSK
+                    bits_per_symbol = int(math.log2(mfsk))
+                    #sym_duration = bits_per_symbol * (1.0 / bitrate)
+                    sym_duration   = 1.0 / bitrate
+                    # get symbols then unpack to bits
+                    symbols = detect_symbols(sig, sym_duration, SAMPLE_RATE, mfsk)
+                    bits = symbols_to_bits(symbols, mfsk)
                 for bit in bits:
                     rec_bits.append(bit)
                     line_buffer.append('*' if bit else '.')
@@ -292,17 +289,91 @@ def record_and_decode(bitrate):
     #    wf.writeframes(full.tobytes())
     #print("[DECODE] Saved debug.wav")
     print("[DECODE] Decoding...")
-    decode_signal(full, bitrate)
+    decode_signal(full, bitrate, mfsk)
 
+def encode(data: bytes, outfile: str, bitrate: int, mfsk: int = 2):
+    """
+    data: full packet (header+payload)
+    bitrate: bits per second
+    mfsk: number of tones (2,4,8,16)
+    """
+    # 1) Reed–Solomon encode
+    print(f"[ENCODE] Packet size: {len(data)} bytes")
+    data_rs = rs_encode_blocks(data)
+    print(f"[ENCODE] RS-encode: {len(data)} → {len(data_rs)} bytes "
+          f"(parity +{len(data_rs)-len(data)} bytes)")
 
-def decode_signal(signal, bitrate):
+    # 2) MFSK parameters
+    bit_duration    = 1.0 / bitrate
+    bits_per_symbol = int(math.log2(mfsk))
+    #sym_duration    = bits_per_symbol * bit_duration
+    sym_duration    = bit_duration
+    freqs           = get_mfsk_freqs(mfsk)
+
+    # 3) Build raw bit-stream
+    bits = PREAMBLE_BITS.copy()
+
+    # 3a) Sync word
+    sync_bits = [(SYNC_WORD >> (31 - i)) & 1 for i in range(32)]
+    bits += sync_bits
+
+    # 3b) Payload bytes → bits
+    for byte in data_rs:
+        for i in range(8):
+            bits.append((byte >> (7 - i)) & 1)
+
+    # 3c) End marker and silence
+    end_bits = [(END_MARKER_WORD >> (31 - i)) & 1 for i in range(32)]
+    bits += end_bits * 3
+    bits += [0] * 32
+
+    # 4) Pad so len(bits) % bits_per_symbol == 0
+    rem = len(bits) % bits_per_symbol
+    if rem:
+        bits += [0] * (bits_per_symbol - rem)
+
+    # 5) Group bits → symbols
+    symbols = []
+    for i in range(0, len(bits), bits_per_symbol):
+        val = 0
+        for b in bits[i:i + bits_per_symbol]:
+            val = (val << 1) | b
+        symbols.append(val)
+
+    # 6) Generate waveform
+    signal = []
+    for sym in symbols:
+        tone = generate_tone(freqs[sym], sym_duration, SAMPLE_RATE)
+        signal.extend(tone)
+    signal = np.array(signal, dtype=np.int16)
+
+    # 7) Output
+    if outfile == '-':
+        print(f"[ENCODE] Playing live with {mfsk}-FSK...")
+        sd.play(signal / 32767.0, SAMPLE_RATE)
+        sd.wait()
+    else:
+        with wave.open(outfile, 'w') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(SAMPLE_RATE)
+            wf.writeframes(signal.tobytes())
+        duration = len(signal) / SAMPLE_RATE
+        print(f"[ENCODE] Written WAV to {outfile} "
+              f"({duration:.2f}s @ {bitrate}bps, {mfsk}-FSK)")
+
+def decode_signal(signal, bitrate, mfsk):
     """
     Demodulate bits → bytes → Reed-Solomon decode → parse header → restore metadata → write file
     """
-    print(f"[DECODE] Decoding {len(signal)} samples @ {bitrate}bps")
+    print(f"[DECODE] Decoding {len(signal)} samples @ {bitrate}bps, {mfsk}-FSK")
     # 1) Demodulate to raw bits
-    bits = detect_bits(signal, 1/bitrate, SAMPLE_RATE)
-    print(f"[DECODE] Got {len(bits)} bits.")
+    # decode symbols, then unpack to bits
+    #bits_per_symbol = int(math.log2(mfsk))
+    #sym_dur = bits_per_symbol * (1.0 / bitrate)
+    sym_dur         = 1.0 / bitrate
+    symbols         = detect_symbols(signal, sym_dur, SAMPLE_RATE, mfsk=mfsk)
+    bits            = symbols_to_bits(symbols, mfsk=mfsk)
 
     # 2) Find sync and trim
     start_idx = find_sync(bits)
@@ -369,7 +440,15 @@ def decode_signal(signal, bitrate):
         except Exception as e:
             print(f"[DECODE] Decompression failed: {e}")
 
-    # 9) Restore ownership, permissions, and timestamps
+    try:
+        with open(fname, 'wb') as f:
+            f.write(payload)
+        print(f"[DECODE] Wrote output file: {fname}")
+    except Exception as e:
+        print(f"[DECODE] Failed to write output file: {e}")
+        return
+
+    # 10) Now restore ownership, permissions, and timestamps
     try:
         os.chown(fname, uid, gid)
         os.chmod(fname, mode)
@@ -379,14 +458,6 @@ def decode_signal(signal, bitrate):
         print("[DECODE] Warning: insufficient privileges to restore owner/group.")
     except Exception as e:
         print(f"[DECODE] Metadata restore failed: {e}")
-
-    # 10) Write file to disk
-    try:
-        with open(fname, 'wb') as f:
-            f.write(payload)
-        print(f"[DECODE] Wrote output file: {fname}")
-    except Exception as e:
-        print(f"[DECODE] Failed to write output file: {e}")
 
 
 def find_end_marker(bits):
@@ -433,6 +504,13 @@ def main():
         default=DEFAULT_BITRATE,
         help=f"Bitrate in bits/sec (default: {DEFAULT_BITRATE})"
     )
+    parser.add_argument(
+        '--mfsk',
+        type=int,
+        choices=[2,4,8,16],
+        default=2,
+        help="Number of FSK tones (2 = default FSK, 4/8/16 = MFSK)"
+    )
 
     # mutually exclusive compression flags
     group = parser.add_mutually_exclusive_group()
@@ -455,6 +533,7 @@ def main():
         help="Compress only if it makes the data smaller"
     )
     parser.set_defaults(auto_compress=True)
+    
 
     if len(sys.argv)==1:
         parser.print_help(); sys.exit(1)
@@ -492,18 +571,21 @@ def main():
                 payload = raw; flags = 0
                 print(f"[ENCODE] Compression: skipped (compressed size {len(comp)} ≥ raw size {len(raw)})")
 
-        # ─── 2) Gather file metadata ─────────────────────────────────────
-        try:
-            st = os.stat(name)
-            backup_ts = int(time.time())
-            ctime     = int(st.st_ctime)
-            mtime     = int(st.st_mtime)
-            uid       = st.st_uid
-            gid       = st.st_gid
-            mode_perm = st.st_mode & 0o777
-        except FileNotFoundError:
+        # ─── 2) Gather file metadata (only if real file) ─────────────────
+        if args.data:
+            # inline mode: zero out all metadata
             backup_ts = ctime = mtime = uid = gid = mode_perm = 0
-
+        else:
+            try:
+                st = os.stat(name)
+                backup_ts = int(time.time())
+                ctime     = int(st.st_ctime)
+                mtime     = int(st.st_mtime)
+                uid       = st.st_uid
+                gid       = st.st_gid
+                mode_perm = st.st_mode & 0o777
+            except FileNotFoundError:
+                backup_ts = ctime = mtime = uid = gid = mode_perm = 0
         print("[ENCODE] Metadata:")
         print(f"    Backup timestamp: {datetime.datetime.fromtimestamp(backup_ts)}")
         print(f"    Original ctime:   {datetime.datetime.fromtimestamp(ctime)}")
@@ -516,18 +598,19 @@ def main():
         print(f"[ENCODE] CRC32: 0x{crc:08X}")
 
         # ─── 5) Packetize ─────────────────────────────────────────────────
-        packet = build_packet(name, payload, flags)
+        use_stat = not bool(args.data)
+        packet = build_packet(name, payload, flags, stat_file=use_stat)
         print(f"[ENCODE] Packet: {len(packet)} bytes (hdr+data+crc)")
 
         # ─── 6) Modulate & write ──────────────────────────────────────────
-        encode(packet, args.file, args.bitrate)
+        encode(packet, args.file, args.bitrate, args.mfsk)
 
     else:
         print("[MAIN] Entering decode mode")
         if args.file=='-':
-            record_and_decode(args.bitrate)
+            record_and_decode(args.bitrate, args.mfsk)
         else:
-            decode_wav(args.file, args.bitrate)
+            decode_wav(args.file, args.bitrate, args.mfsk)
 
 if __name__=='__main__':
     try:

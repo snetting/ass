@@ -24,6 +24,7 @@ Features
 
 -   Preserve and restore file metadata: timestamps, ownership, and permissions
 
+-   **Experimental** MFSK 2,4,8,16 support
 * * * * *
 
 Serial Data Structure
@@ -83,8 +84,8 @@ Usage
 -----
 
 ```
-usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
-             [--bitrate BITRATE]
+usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile INPUTFILE]
+             [--bitrate BITRATE] [--mfsk {2,4,8,16}]
              [--alwayscompress | --nocompress | --autocompress] file
 ```
 
@@ -103,6 +104,8 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
     -   `--inputfile FILE` : Path to input file to encode
 
     -   `--bitrate BITRATE` : Bitrate in bits/sec (default: 1200)
+    
+    -  `mfsk {2,4,8,16} Number of tones (2 = standard FSK; 4/8/16 = experimental MFSK)
 
     -   **Compression modes** (mutually exclusive):
 
@@ -129,6 +132,13 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
 
 # Decode live from mic
 ./ass.py decode - --bitrate 2400 
+
+# Experimental 8-FSK at 100 bps bit-rate (effectively 300 bps)
+./ass.py encode out-mfsk.wav --inputfile data.bin --bitrate 1200 --mfsk 8
+
+# Decode a 16-FSK transmission
+./ass.py decode in-mfsk16.wav --bitrate 1200 --mfsk 16
+
 ```
 
 Decoded files are written with their original names, metadata, ownership, and permissions.
