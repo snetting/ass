@@ -166,7 +166,7 @@ This code was partially generated and reviewed with the assistance of a large la
 To Do
 -----
 
--   Add **MFSK encoding** to increase data rates
+-   Add **MFSK encoding** to increase data rates (in progress / Experimental)
 
 -   Improve burst‑error handling with interleaving
 
