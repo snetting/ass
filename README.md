@@ -107,6 +107,7 @@ This code was partially generated and reviewed with the assistance of a large la
 
 * Add **MFSK encoding** to increase data rates
 * Improve burst‑error handling with interleaving
+* Implement proper sync and timing recovery (e.g. PLL / phase-locked loop) to adjust for clock drift and sample alignment
 
 ---
 
