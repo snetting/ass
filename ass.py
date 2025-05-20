@@ -88,15 +88,14 @@ def rs_decode_blocks(data: bytes):
     }
     return bytes(out), stats
 
-def build_packet(filename: str, data: bytes, flags: int) -> bytes:
+def build_packet(filename: str, data: bytes, flags: int, stat_file: bool) -> bytes:
     """
     Build the packet header, now honours the `flags` argument.
     """
     filename_bytes = filename.encode()
     crc = zlib.crc32(data)
 
-    # Gather file metadata
-    try:
+    if stat_file and os.path.exists(filename):
         st = os.stat(filename)
         backup_ts = int(time.time())
         ctime     = int(st.st_ctime)
@@ -104,7 +103,8 @@ def build_packet(filename: str, data: bytes, flags: int) -> bytes:
         uid       = st.st_uid
         gid       = st.st_gid
         mode      = st.st_mode & 0o777
-    except Exception:
+    else:
+        # inline or missing file → zero metadata
         backup_ts = ctime = mtime = uid = gid = mode = 0
 
     header = (
@@ -440,7 +440,15 @@ def decode_signal(signal, bitrate, mfsk):
         except Exception as e:
             print(f"[DECODE] Decompression failed: {e}")
 
-    # 9) Restore ownership, permissions, and timestamps
+    try:
+        with open(fname, 'wb') as f:
+            f.write(payload)
+        print(f"[DECODE] Wrote output file: {fname}")
+    except Exception as e:
+        print(f"[DECODE] Failed to write output file: {e}")
+        return
+
+    # 10) Now restore ownership, permissions, and timestamps
     try:
         os.chown(fname, uid, gid)
         os.chmod(fname, mode)
@@ -450,14 +458,6 @@ def decode_signal(signal, bitrate, mfsk):
         print("[DECODE] Warning: insufficient privileges to restore owner/group.")
     except Exception as e:
         print(f"[DECODE] Metadata restore failed: {e}")
-
-    # 10) Write file to disk
-    try:
-        with open(fname, 'wb') as f:
-            f.write(payload)
-        print(f"[DECODE] Wrote output file: {fname}")
-    except Exception as e:
-        print(f"[DECODE] Failed to write output file: {e}")
 
 
 def find_end_marker(bits):
@@ -571,18 +571,21 @@ def main():
                 payload = raw; flags = 0
                 print(f"[ENCODE] Compression: skipped (compressed size {len(comp)} ≥ raw size {len(raw)})")
 
-        # ─── 2) Gather file metadata ─────────────────────────────────────
-        try:
-            st = os.stat(name)
-            backup_ts = int(time.time())
-            ctime     = int(st.st_ctime)
-            mtime     = int(st.st_mtime)
-            uid       = st.st_uid
-            gid       = st.st_gid
-            mode_perm = st.st_mode & 0o777
-        except FileNotFoundError:
+        # ─── 2) Gather file metadata (only if real file) ─────────────────
+        if args.data:
+            # inline mode: zero out all metadata
             backup_ts = ctime = mtime = uid = gid = mode_perm = 0
-
+        else:
+            try:
+                st = os.stat(name)
+                backup_ts = int(time.time())
+                ctime     = int(st.st_ctime)
+                mtime     = int(st.st_mtime)
+                uid       = st.st_uid
+                gid       = st.st_gid
+                mode_perm = st.st_mode & 0o777
+            except FileNotFoundError:
+                backup_ts = ctime = mtime = uid = gid = mode_perm = 0
         print("[ENCODE] Metadata:")
         print(f"    Backup timestamp: {datetime.datetime.fromtimestamp(backup_ts)}")
         print(f"    Original ctime:   {datetime.datetime.fromtimestamp(ctime)}")
@@ -595,7 +598,8 @@ def main():
         print(f"[ENCODE] CRC32: 0x{crc:08X}")
 
         # ─── 5) Packetize ─────────────────────────────────────────────────
-        packet = build_packet(name, payload, flags)
+        use_stat = not bool(args.data)
+        packet = build_packet(name, payload, flags, stat_file=use_stat)
         print(f"[ENCODE] Packet: {len(packet)} bytes (hdr+data+crc)")
 
         # ─── 6) Modulate & write ──────────────────────────────────────────
