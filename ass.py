@@ -42,24 +42,48 @@ def rs_encode_blocks(data: bytes) -> bytes:
         out.extend(codeword)
     return bytes(out)
 
-def rs_decode_blocks(data: bytes) -> bytes:
+def rs_decode_blocks(data: bytes):
     """
     Split received data into codewords, attempt RS decode, and recover original data.
-    Uncorrectable blocks will have parity stripped.
+    Returns (decoded_bytes, stats) where stats contains:
+      - total_blocks
+      - symbols_corrected
+      - uncorrectable_blocks
     """
     out = bytearray()
+    total_blocks = 0
+    symbols_corrected = 0
+    uncorrectable_blocks = 0
     cw_len = RS_K + RS_NSYM
+
     for i in range(0, len(data), cw_len):
-        cw = data[i:i + cw_len]
+        cw = data[i:i+cw_len]
+        total_blocks += 1
         try:
             result = RS_CODEC.decode(cw)
-            decoded = result[0] if isinstance(result, tuple) else result
+            # result may be (decoded_bytes, errata_positions, …)
+            if isinstance(result, tuple):
+                decoded = result[0]
+                # collect all errata positions from the tuple
+                errata_positions = []
+                for part in result[1:]:
+                    if isinstance(part, (list, tuple)):
+                        errata_positions.extend(part)
+                symbols_corrected += len(errata_positions)
+            else:
+                decoded = result
+            out.extend(decoded)
         except ReedSolomonError:
-            print(f"Warning: uncorrectable RS block at byte {i}")
-            decoded = cw[:RS_K]
-        out.extend(decoded)
-    return bytes(out)
+            uncorrectable_blocks += 1
+            # on failure, strip off parity and take raw data
+            out.extend(cw[:RS_K])
 
+    stats = {
+        "total_blocks": total_blocks,
+        "symbols_corrected": symbols_corrected,
+        "uncorrectable_blocks": uncorrectable_blocks,
+    }
+    return bytes(out), stats
 
 def build_packet(filename: str, data: bytes) -> bytes:
     filename_bytes = filename.encode()
@@ -155,7 +179,7 @@ def find_sync(bits):
     sync_bits = [(SYNC_WORD >> (31 - i)) & 1 for i in range(32)]
     for i in range(len(bits) - len(sync_bits)):
         if bits[i:i + len(sync_bits)] == sync_bits:
-            print("Found sync pattern.")
+            print("[DECODE] Found sync pattern.")
             return i + len(sync_bits)
     return None
 
@@ -171,7 +195,7 @@ def bits_to_bytes(bits):
 
 
 def decode_wav(filename, bitrate):
-    print(f"Loading WAV: {filename} @ {bitrate}bps")
+    print(f"[DECODE] Loading WAV: {filename} @ {bitrate}bps")
     with wave.open(filename, 'r') as wf:
         frames = wf.readframes(wf.getnframes())
         signal = np.frombuffer(frames, dtype=np.int16)
@@ -192,7 +216,7 @@ def record_and_decode(bitrate):
 
     end_bits = [(END_MARKER_WORD >> (31 - i)) & 1 for i in range(32)]
     try:
-        print("Listening... Ctrl+C to stop when ready.")
+        print("[DECODE] Listening... Ctrl+C to stop when ready.")
         with sd.InputStream(samplerate=SAMPLE_RATE, channels=1) as stream:
             while True:
                 block_data, _ = stream.read(block)
@@ -209,7 +233,7 @@ def record_and_decode(bitrate):
                     if len(rec_bits) >= 32 and rec_bits[-32:] == end_bits:
                         raise KeyboardInterrupt
     except KeyboardInterrupt:
-        print("\nStopped listening.")
+        print("\n[DECODE] Stopped listening.")
 
     full = np.concatenate(buf)
     #with wave.open('debug.wav','w') as wf:
@@ -217,57 +241,61 @@ def record_and_decode(bitrate):
     #    wf.setsampwidth(2)
     #    wf.setframerate(SAMPLE_RATE)
     #    wf.writeframes(full.tobytes())
-    #print("Saved debug.wav")
-    print("Decoding...")
+    #print("[DECODE] Saved debug.wav")
+    print("[DECODE] Decoding...")
     decode_signal(full, bitrate)
 
 
 def decode_signal(signal, bitrate):
-    print(f"Decoding {len(signal)} samples @ {bitrate}bps")
+    print(f"[DECODE] Decoding {len(signal)} samples @ {bitrate}bps")
     bits = detect_bits(signal, 1/bitrate, SAMPLE_RATE)
-    print(f"Got {len(bits)} bits.")
+    print(f"[DECODE] Got {len(bits)} bits.")
 
     idx = find_sync(bits)
     if idx is None:
-        print("No sync; abort")
+        print("[DECODE] No sync; abort")
         return
     data_bits = bits[idx:]
     end_idx = find_end_marker(data_bits)
     if end_idx is not None:
         data_bits = data_bits[:end_idx]
     else:
-        print("No end marker; using full stream.")
+        print("[DECODE] No end marker; using full stream.")
 
     raw = bits_to_bytes(data_bits)
-    print("Applying RS decode...")
-    decoded = rs_decode_blocks(raw)
+    print("[DECODE] Applying RS decode...")
+    decoded, rs_stats = rs_decode_blocks(raw)
+
+    print(f"[DECODE] RS blocks: {rs_stats['total_blocks']}, "
+          f"symbols corrected: {rs_stats['symbols_corrected']}, "
+          f"uncorrectable: {rs_stats['uncorrectable_blocks']}")
 
     try:
         fname, payload, crc = parse_packet(decoded)
-        print(f"Filename: {fname}")
+        print(f"[DECODE] Filename: {fname}")
         if zlib.crc32(payload) != crc:
-            print(f"CRC mismatch: expected {crc}")
+            print(f"[DECODE] CRC mismatch: expected {crc}")
         else:
-            print("CRC OK")
+            print("[DECODE] CRC OK")
             # decompress
             try:
                 outdata = lzma.decompress(payload)
-                print("Decompression successful.")
+                print("[DECODE] Decompression successful.")
             except Exception as e:
-                print(f"Decompression failed: {e}")
+                print(f"[DECODE] Decompression failed: {e}")
                 outdata = payload
             with open(fname,'wb') as f:
                 f.write(outdata)
-            print(f"Wrote output file: {fname}")
+            print(f"[DECODE] Wrote output file: {fname}")
     except Exception as e:
-        print(f"Failed parse/write: {e}")
+        print(f"[DECODE] Failed parse/write: {e}")
 
 
 def find_end_marker(bits):
     end_bits = [(END_MARKER_WORD >> (31 - i)) & 1 for i in range(32)]
     for i in range(len(bits)-len(end_bits)):
         if bits[i:i+len(end_bits)]==end_bits:
-            print("Found end marker.")
+            print("[DECODE] Found end marker.")
             return i
     return None
 
@@ -308,6 +336,7 @@ def main():
         encode(packet, args.file, args.bitrate)
 
     else:
+        print("[MAIN] Entering decode mode")
         if args.file=='-':
             record_and_decode(args.bitrate)
         else:
