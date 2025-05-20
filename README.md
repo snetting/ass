@@ -20,9 +20,9 @@ Features
 
 -   **Live bit‑stream display** in console
 
--   Read/write from WAV file or live audio input
+-   **Read/write from WAV file or live audio input**
 
--   Preserve and restore file metadata: timestamps, ownership, and permissions
+-   **Preserve and restore file metadata:** timestamps, ownership, and permissions
 
 -   **Experimental** MFSK 2,4,8,16 support
 * * * * *
@@ -105,7 +105,7 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile INPUTFILE]
 
     -   `--bitrate BITRATE` : Bitrate in bits/sec (default: 1200)
     
-    -  `mfsk {2,4,8,16} Number of tones (2 = standard FSK; 4/8/16 = experimental MFSK)
+    -   `--mfsk {2,4,8,16}` : Number of tones (2 = standard FSK; 4/8/16 = experimental MFSK)
 
     -   **Compression modes** (mutually exclusive):
 
