@@ -1,116 +1,169 @@
-# ASS: Audio Serial Storage
+ASS: Audio Serial Storage
+=========================
 
-**Save data to cassette** via FSK modulation, Reed–Solomon ECC, and LZMA compression.
+**Save data to cassette** via FSK modulation, Reed--Solomon ECC, and LZMA compression.
 
-A simple tape-style encoder/decoder originally inspired by 8‑bit microcomputers and the now‑deprecated [ctape project](https://github.com/windytan/ctape). Beyond cassette storage, ASS supports low‑bandwidth data links (e.g., amateur radio).
+A simple tape‑style encoder/decoder originally inspired by 8‑bit microcomputers and the now‑deprecated ctape project. Beyond cassette storage, ASS supports low‑bandwidth data links (e.g., amateur radio).
 
----
+* * * * *
 
-## Features
+Features
+--------
 
-* **FSK Modulation/Demodulation** at 1200 Hz / 2400 Hz tones
-* **LZMA Compression** (preset 9 + extreme) before transmission
-* **Reed–Solomon (255, 223)** error correction (up to 16 byte-errors per block)
-* **CRC32** payload integrity check
-* **Live bit‑stream display** in console
-* Read/write from WAV file or live audio input/output
+-   **FSK Modulation/Demodulation** at 1200 Hz / 2400 Hz tones
 
----
+-   **LZMA Compression** (xz‑9e) with three modes: `--alwayscompress`, `--nocompress`, or `--autocompress` (default)
 
-## Prerequisites
+-   **Reed--Solomon (255, 223)** error correction (up to 16 byte‑errors per block)
 
-* **Python** 3.7+
+-   **CRC32** payload integrity check
+
+-   **Live bit‑stream display** in console
+
+-   Read/write from WAV file or live microphone input
+
+-   Preserve and restore file metadata: timestamps, ownership, and permissions
+
+* * * * *
+
+Serial Data Structure
+---------------------
+
+Each packet on the wire is arranged as follows (all multi‑byte fields big‑endian):
+
+| Offset | Length | Field |
+| 0 | 4 | Magic header: `ASS1` |
+| 4 | 1 | Filename length (N) |
+| 5 | N | Filename (UTF‑8) |
+| 5+N | 4 | Backup timestamp (UNIX epoch seconds) |
+| 9+N | 4 | Original ctime |
+| 13+N | 4 | Original mtime |
+| 17+N | 4 | UID |
+| 21+N | 4 | GID |
+| 25+N | 2 | File mode (permissions) |
+| 27+N | 1 | Flags (bit 0 = compression used; bits 1--7 reserved) |
+| 28+N | 4 | Payload byte‑length |
+| 32+N | 4 | CRC32 of payload |
+| 36+N | M | Payload (compressed or raw data) |
+
+After framing, each byte goes through Reed--Solomon → FSK → WAV.
+
+* * * * *
+
+Prerequisites
+-------------
+
+-   **Python** 3.7+
 
 ### Dependencies
 
 Install via `pip`:
 
-```bash
+```
 pip install numpy sounddevice reedsolo
 ```
 
----
+> `*lzma*`* is part of Python's standard library.*
 
-## Installation
+* * * * *
 
-```bash
-git clone https://github.com/snetting/ass.git
+Installation
+------------
+
+```
+git clone https://your.repo.url/ass.git
 cd ass
 chmod +x ass.py
 ```
 
----
+* * * * *
 
-## Usage
+Usage
+-----
 
-### Encoding
+```
+usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
+             [--bitrate BITRATE]
+             [--alwayscompress | --nocompress | --autocompress] file
+```
 
-* **File input**:
+-   **Positional arguments**:
 
-  ```bash
-  ./ass.py encode output.wav \
-      --inputfile example.bin \
-      --bitrate 2400 
-  ```
+    -   `encode, decode` : Mode of operation
 
-* **Std‑in**:
+    -   `file` : Output WAV when encoding; input WAV (or `-` for live mic) when decoding
 
-  ```bash
-  cat example.txt | \
-      ./ass.py encode output.wav \
-      --bitrate 2400 
-  ```
+-   **Optional arguments**:
 
-* **Inline string**:
+    -   `-h, --help` : Show this help message and exit
 
-  ```bash
-  ./ass.py encode output.wav \
-      --data "Hello, world!" \
-      --bitrate 2400 
-  ```
+    -   `--data DATA` : Inline string to encode
 
-### Decoding
+    -   `--inputfile FILE` : Path to input file to encode
 
-* **From file**:
+    -   `--bitrate BITRATE` : Bitrate in bits/sec (default: 100)
 
-  ```bash
-  ./ass.py decode input.wav \
-      --bitrate 2400 
-  ```
+    -   **Compression modes** (mutually exclusive):
 
-* **Live via microphone**:
+        -   `--alwayscompress` : Always apply LZMA
 
-  ```bash
-  ./ass.py decode - \
-      --bitrate 2400 
-  ```
+        -   `--nocompress` : Disable LZMA
 
-Decoded output is written to the original filename in the current directory.
+        -   `--autocompress` : Apply only if compressed < raw (default)
 
----
+### Examples
 
-## Inspiration
+```
+# Encode with auto‑compress (default)
+./ass.py encode output.wav --inputfile example.bin --bitrate 100
 
-* My love of classic **8‑bit microcomputers** and their cassette storage
-* The deprecated **ctape** project: [https://github.com/windytan/ctape](https://github.com/windytan/ctape)
-* Low‑bandwidth digital modes in **amateur radio**
+# Encode forcing compression
+./ass.py encode output.wav --inputfile example.bin --bitrate 100 --alwayscompress
 
----
+# Encode without compression
+./ass.py encode output.wav --inputfile example.bin --bitrate 100 --nocompress
 
-## Disclaimer
+# Decode from file
+./ass.py decode input.wav --bitrate 100
 
-This code was partially generated and reviewed with the assistance of a large language model (LLM). It is provided as a work in progress; use at your own risk. Contributions, bug reports, and pull requests are welcome.
+# Decode live from mic
+./ass.py decode - --bitrate 100
+```
 
----
+Decoded files are written with their original names, metadata, ownership, and permissions.
 
-## To Do
+* * * * *
 
-* Add **MFSK encoding** to increase data rates
-* Improve burst‑error handling with interleaving
-* Implement proper sync and timing recovery (e.g. PLL / phase-locked loop) to adjust for clock drift and sample alignment
+Inspiration
+-----------
 
----
+-   My love of classic **8‑bit microcomputers** and cassette storage
 
-*Have fun sending bits the old-school way!*  
-*73 de OH3SPN / M0SPN / TCM^SLP*
+-   The deprecated **ctape** project: https://github.com/windytan/ctape
 
+-   Low‑bandwidth digital modes in **amateur radio**
+
+* * * * *
+
+Disclaimer
+----------
+
+This code was partially generated and reviewed with the assistance of a large language model (LLM). It is provided as a work in progress; use at your own risk. Contributions and pull requests are welcome.
+
+* * * * *
+
+To Do
+-----
+
+-   Add **MFSK encoding** to increase data rates
+
+-   Improve burst‑error handling with interleaving
+
+-   Implement proper sync and timing recovery (e.g., PLL)
+
+-   (Optional) GUI or cross‑platform installer
+
+* * * * *
+
+*Have fun sending bits the old‑school way!*\
+*73 de OH3SPN / M0SPN / TCM^S*
