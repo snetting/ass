@@ -31,20 +31,21 @@ Serial Data Structure
 
 Each packet on the wire is arranged as follows (all multi‑byte fields big‑endian):
 
-| Offset | Length | Field |
-| 0 | 4 | Magic header: `ASS1` |
-| 4 | 1 | Filename length (N) |
-| 5 | N | Filename (UTF‑8) |
-| 5+N | 4 | Backup timestamp (UNIX epoch seconds) |
-| 9+N | 4 | Original ctime |
-| 13+N | 4 | Original mtime |
-| 17+N | 4 | UID |
-| 21+N | 4 | GID |
-| 25+N | 2 | File mode (permissions) |
-| 27+N | 1 | Flags (bit 0 = compression used; bits 1--7 reserved) |
-| 28+N | 4 | Payload byte‑length |
-| 32+N | 4 | CRC32 of payload |
-| 36+N | M | Payload (compressed or raw data) |
+| Offset | Length | Field                                 |
+|:------:|:------:|:--------------------------------------|
+| 0      | 4      | Magic header: `"ASS1"`                |
+| 4      | 1      | Filename length (N)                   |
+| 5      | N      | Filename (UTF-8)                      |
+| 5+N    | 4      | Backup timestamp (UNIX epoch seconds) |
+| 9+N    | 4      | Original ctime                        |
+| 13+N   | 4      | Original mtime                        |
+| 17+N   | 4      | UID                                   |
+| 21+N   | 4      | GID                                   |
+| 25+N   | 2      | File mode (permissions)               |
+| 27+N   | 1      | Flags (bit 0 = compression used)      |
+| 28+N   | 4      | Payload byte-length                   |
+| 32+N   | 4      | CRC32 of payload                      |
+| 36+N   | M      | Payload (compressed or raw data)      |
 
 After framing, each byte goes through Reed--Solomon → FSK → WAV.
 
