@@ -20,7 +20,7 @@ Features
 
 -   **Live bit‑stream display** in console
 
--   Read/write from WAV file or live microphone input
+-   Read/write from WAV file or live audio input
 
 -   Preserve and restore file metadata: timestamps, ownership, and permissions
 
@@ -92,7 +92,7 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
 
     -   `encode, decode` : Mode of operation
 
-    -   `file` : Output WAV when encoding; input WAV (or `-` for live mic) when decoding
+    -   `file` : Output WAV when encoding; input WAV (or `-` for live audio) when decoding
 
 -   **Optional arguments**:
 
@@ -102,7 +102,7 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
 
     -   `--inputfile FILE` : Path to input file to encode
 
-    -   `--bitrate BITRATE` : Bitrate in bits/sec (default: 100)
+    -   `--bitrate BITRATE` : Bitrate in bits/sec (default: 1200)
 
     -   **Compression modes** (mutually exclusive):
 
@@ -116,19 +116,19 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile FILE]
 
 ```
 # Encode with auto‑compress (default)
-./ass.py encode output.wav --inputfile example.bin --bitrate 100
+./ass.py encode output.wav --inputfile example.bin --bitrate 2400
 
 # Encode forcing compression
-./ass.py encode output.wav --inputfile example.bin --bitrate 100 --alwayscompress
+./ass.py encode output.wav --inputfile example.bin --bitrate 2400 --alwayscompress
 
 # Encode without compression
-./ass.py encode output.wav --inputfile example.bin --bitrate 100 --nocompress
+./ass.py encode output.wav --inputfile example.bin --bitrate 2400 --nocompress
 
 # Decode from file
-./ass.py decode input.wav --bitrate 100
+./ass.py decode input.wav --bitrate 2400 
 
 # Decode live from mic
-./ass.py decode - --bitrate 100
+./ass.py decode - --bitrate 2400 
 ```
 
 Decoded files are written with their original names, metadata, ownership, and permissions.
@@ -162,9 +162,9 @@ To Do
 
 -   Implement proper sync and timing recovery (e.g., PLL)
 
--   (Optional) GUI or cross‑platform installer
+-   (Optional) GUI
 
 * * * * *
 
 *Have fun sending bits the old‑school way!*\
-*73 de OH3SPN / M0SPN / TCM^S*
+*73 de OH3SPN / M0SPN / TCM^SLP*
