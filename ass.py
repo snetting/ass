@@ -602,11 +602,31 @@ def main():
         packet = build_packet(name, payload, flags, stat_file=use_stat)
         print(f"[ENCODE] Packet: {len(packet)} bytes (hdr+data+crc)")
 
+        # --- 6) Clamp bitrate for MFSK
+        if args.mfsk > 2:
+            # compute maximum reliable bit_rate
+            max_bitrate = int((FREQ_1 - FREQ_0) / (args.mfsk - 1))
+            if args.bitrate > max_bitrate:
+                print(f"[ENCODE] Warning: {args.mfsk}-FSK at {args.bitrate}bps "
+                f"will have Δf ≃ {args.bitrate}Hz > tone spacing "
+                f"{max_bitrate:.1f}Hz; clamping to {max_bitrate}bps.")
+                args.bitrate = max_bitrate
+
+
         # ─── 6) Modulate & write ──────────────────────────────────────────
         encode(packet, args.file, args.bitrate, args.mfsk)
 
     else:
         print("[MAIN] Entering decode mode")
+        if args.mfsk > 2:
+            # compute maximum reliable bit_rate
+            max_bitrate = int((FREQ_1 - FREQ_0) / (args.mfsk - 1))
+            if args.bitrate > max_bitrate:
+                print(f"[MAIN] Warning: {args.mfsk}-FSK at {args.bitrate}bps "
+                    f"will have Δf ≃ {args.bitrate}Hz > tone spacing "
+                    f"{max_bitrate:.1f}Hz; clamping to {max_bitrate}bps.")
+                args.bitrate = max_bitrate
+
         if args.file=='-':
             record_and_decode(args.bitrate, args.mfsk)
         else:
