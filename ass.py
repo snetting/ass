@@ -89,19 +89,12 @@ def rs_decode_blocks(data: bytes):
 
 def build_packet(filename: str, data: bytes, flags: int) -> bytes:
     """
-    Build packet header including:
-      • filename
-      • backup timestamp (now)
-      • file ctime & mtime
-      • uid, gid, permissions (mode)
-      • 1-byte flags (bit0 = compressed)
-      • data length
-      • CRC32
+    Build the packet header, now honours the `flags` argument.
     """
     filename_bytes = filename.encode()
     crc = zlib.crc32(data)
 
-    # Gather file metadata if file exists on disk
+    # Gather file metadata
     try:
         st = os.stat(filename)
         backup_ts = int(time.time())
@@ -111,11 +104,7 @@ def build_packet(filename: str, data: bytes, flags: int) -> bytes:
         gid       = st.st_gid
         mode      = st.st_mode & 0o777
     except Exception:
-        # Fallback zeros if no file
         backup_ts = ctime = mtime = uid = gid = mode = 0
-
-    # Flags: bit0 = LZMA compressed
-    flags = 1 if LZMA_PRESET else 0
 
     header = (
         b'ASS1'
@@ -127,7 +116,7 @@ def build_packet(filename: str, data: bytes, flags: int) -> bytes:
         + uid.to_bytes(4, 'big')
         + gid.to_bytes(4, 'big')
         + mode.to_bytes(2, 'big')
-        + bytes([flags])
+        + bytes([flags])                      # <<-- use the flags you passed
         + len(data).to_bytes(4, 'big')
         + crc.to_bytes(4, 'big')
     )
