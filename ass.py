@@ -87,7 +87,7 @@ def rs_decode_blocks(data: bytes):
     }
     return bytes(out), stats
 
-def build_packet(filename: str, data: bytes) -> bytes:
+def build_packet(filename: str, data: bytes, flags: int) -> bytes:
     """
     Build packet header including:
       • filename
@@ -410,12 +410,63 @@ def find_end_marker(bits):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="FSK with RS ECC + LZMA compression")
-    parser.add_argument('mode',choices=['encode','decode'])
-    parser.add_argument('file',help="outfile for encode; infile or '-' for live decode")
-    parser.add_argument('--data',help="string to encode")
-    parser.add_argument('--inputfile',help="file to encode")
-    parser.add_argument('--bitrate',type=int,default=DEFAULT_BITRATE)
+    parser = argparse.ArgumentParser(
+        prog='ass.py',
+        description="FSK with RS ECC + LZMA compression",
+        usage=(
+            "ass.py [-h] {encode,decode} "
+            "[--data DATA] [--inputfile INPUTFILE] "
+            "[--bitrate BITRATE] "
+            "[--alwayscompress | --nocompress | --autocompress] "
+            "file"
+        )
+    )
+
+    # positional mode + file
+    parser.add_argument(
+        'mode',
+        choices=['encode', 'decode'],
+        help="Mode: 'encode' to audio, 'decode' to extract"
+    )
+    parser.add_argument(
+        'file',
+        help="Output WAV file for encode, or input WAV (or '-' for live input) for decode"
+    )
+
+    # optional data sources
+    parser.add_argument('--data', help="Inline string to encode")
+    parser.add_argument('--inputfile', help="Path to input file to encode")
+
+    # bitrate with default
+    parser.add_argument(
+        '--bitrate',
+        type=int,
+        default=DEFAULT_BITRATE,
+        help=f"Bitrate in bits/sec (default: {DEFAULT_BITRATE})"
+    )
+
+    # mutually exclusive compression flags
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        '--alwayscompress', '--always-compress',
+        action='store_true',
+        dest='always_compress',
+        help="Always apply LZMA compression"
+    )
+    group.add_argument(
+        '--nocompress', '--no-compress',
+        action='store_true',
+        dest='no_compress',
+        help="Disable compression entirely"
+    )
+    group.add_argument(
+        '--autocompress', '--auto-compress',
+        action='store_true',
+        dest='auto_compress',
+        help="Compress only if it makes the data smaller"
+    )
+    parser.set_defaults(auto_compress=True)
+
     if len(sys.argv)==1:
         parser.print_help(); sys.exit(1)
     args = parser.parse_args()
@@ -433,6 +484,25 @@ def main():
             name = "stdin_input.bin"
         print(f"[ENCODE] Read data: {len(raw)} bytes from '{name}'")
 
+        # 2) Decide on compression
+        if args.always_compress:
+            payload = lzma.compress(raw, preset=LZMA_PRESET)
+            flags = 1
+            print(f"[ENCODE] Compression: forced, result {len(payload)} bytes")
+        elif args.no_compress:
+            payload = raw
+            flags = 0
+            print(f"[ENCODE] Compression: disabled, sending {len(payload)} bytes")
+        else:  # autocompress
+            comp = lzma.compress(raw, preset=LZMA_PRESET)
+            if len(comp) < len(raw):
+                payload = comp; flags = 1
+                saved = len(raw) - len(comp)
+                print(f"[ENCODE] Compression: applied, {len(comp)} bytes ({saved} bytes saved)")
+            else:
+                payload = raw; flags = 0
+                print(f"[ENCODE] Compression: skipped (compressed size {len(comp)} ≥ raw size {len(raw)})")
+
         # ─── 2) Gather file metadata ─────────────────────────────────────
         try:
             st = os.stat(name)
@@ -445,28 +515,19 @@ def main():
         except FileNotFoundError:
             backup_ts = ctime = mtime = uid = gid = mode_perm = 0
 
-        # flag bit0 = LZMA compressed
-        flags = 1  
-
         print("[ENCODE] Metadata:")
         print(f"    Backup timestamp: {datetime.datetime.fromtimestamp(backup_ts)}")
         print(f"    Original ctime:   {datetime.datetime.fromtimestamp(ctime)}")
         print(f"    Original mtime:   {datetime.datetime.fromtimestamp(mtime)}")
         print(f"    UID: {uid}, GID: {gid}, Mode: {oct(mode_perm)}, Flags: {flags}")
 
-        # ─── 3) Compress ───────────────────────────────────────────────────
-        comp = lzma.compress(raw, preset=LZMA_PRESET)
-        saved = len(raw) - len(comp)
-        pct   = 100.0 * saved / len(raw) if raw else 0
-        print(f"[ENCODE] Compressed: {len(comp)} bytes "
-          f"(saved {saved} bytes, {pct:.1f}% reduction)")
 
         # ─── 4) CRC32 ──────────────────────────────────────────────────────
-        crc = zlib.crc32(comp)
+        crc = zlib.crc32(payload)
         print(f"[ENCODE] CRC32: 0x{crc:08X}")
 
         # ─── 5) Packetize ─────────────────────────────────────────────────
-        packet = build_packet(name, comp)
+        packet = build_packet(name, payload, flags)
         print(f"[ENCODE] Packet: {len(packet)} bytes (hdr+data+crc)")
 
         # ─── 6) Modulate & write ──────────────────────────────────────────
