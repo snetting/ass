@@ -13,7 +13,7 @@ A simple tape-style encoder/decoder originally inspired by 8‑bit microcomputer
 * **Reed–Solomon (255, 223)** error correction (up to 16 byte-errors per block)
 * **CRC32** payload integrity check
 * **Live bit‑stream display** in console
-* Read/write from WAV file or live microphone input
+* **Read/write from WAV file or live audio input
 
 ---
 
@@ -29,14 +29,12 @@ Install via `pip`:
 pip install numpy sounddevice reedsolo
 ```
 
-> *`lzma` is in the standard library. No extra package required.*
-
 ---
 
 ## Installation
 
 ```bash
-git clone https://your.repo.url/ass.git
+git clone https://github.com/snetting/ass.git
 cd ass
 chmod +x ass-reed.py
 ```
@@ -109,9 +107,9 @@ This code was partially generated and reviewed with the assistance of a large la
 
 * Add **MFSK encoding** to increase data rates
 * Improve burst‑error handling with interleaving
-* (Optional) GUI or cross‑platform installer
 
 ---
 
 *Have fun sending bits the old‑school way!*
+73 de OH3SPN / M0SPN / TCM^SLP
 
