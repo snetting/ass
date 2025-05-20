@@ -8,6 +8,8 @@ import os
 import sounddevice as sd
 import zlib
 import lzma
+import time
+import datetime
 from reedsolo import RSCodec, ReedSolomonError
 
 # Default config
@@ -86,23 +88,81 @@ def rs_decode_blocks(data: bytes):
     return bytes(out), stats
 
 def build_packet(filename: str, data: bytes) -> bytes:
+    """
+    Build packet header including:
+      • filename
+      • backup timestamp (now)
+      • file ctime & mtime
+      • uid, gid, permissions (mode)
+      • 1-byte flags (bit0 = compressed)
+      • data length
+      • CRC32
+    """
     filename_bytes = filename.encode()
     crc = zlib.crc32(data)
-    header = b'ASS1' + bytes([len(filename_bytes)]) + filename_bytes \
-             + len(data).to_bytes(4, 'big') + crc.to_bytes(4, 'big')
+
+    # Gather file metadata if file exists on disk
+    try:
+        st = os.stat(filename)
+        backup_ts = int(time.time())
+        ctime     = int(st.st_ctime)
+        mtime     = int(st.st_mtime)
+        uid       = st.st_uid
+        gid       = st.st_gid
+        mode      = st.st_mode & 0o777
+    except Exception:
+        # Fallback zeros if no file
+        backup_ts = ctime = mtime = uid = gid = mode = 0
+
+    # Flags: bit0 = LZMA compressed
+    flags = 1 if LZMA_PRESET else 0
+
+    header = (
+        b'ASS1'
+        + bytes([len(filename_bytes)])
+        + filename_bytes
+        + backup_ts.to_bytes(4, 'big')
+        + ctime.to_bytes(4, 'big')
+        + mtime.to_bytes(4, 'big')
+        + uid.to_bytes(4, 'big')
+        + gid.to_bytes(4, 'big')
+        + mode.to_bytes(2, 'big')
+        + bytes([flags])
+        + len(data).to_bytes(4, 'big')
+        + crc.to_bytes(4, 'big')
+    )
     return header + data
 
-
 def parse_packet(packet: bytes):
+    """
+    Extract:
+      filename, data_bytes, crc,
+      backup_ts, ctime, mtime,
+      uid, gid, mode, flags
+    """
     if packet[:4] != b'ASS1':
         raise ValueError("Invalid packet format or missing magic header")
-    name_len = packet[4]
-    filename = packet[5:5 + name_len].decode()
-    data_len = int.from_bytes(packet[5 + name_len:5 + name_len + 4], 'big')
-    crc = int.from_bytes(packet[5 + name_len + 4:5 + name_len + 8], 'big')
-    data = packet[5 + name_len + 8:5 + name_len + 8 + data_len]
-    return filename, data, crc
 
+    idx = 4
+    name_len = packet[idx]
+    idx += 1
+
+    filename = packet[idx:idx + name_len].decode()
+    idx += name_len
+
+    backup_ts = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+    ctime     = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+    mtime     = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+    uid       = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+    gid       = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+    mode      = int.from_bytes(packet[idx:idx+2], 'big'); idx += 2
+    flags     = packet[idx]; idx += 1
+
+    data_len = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+    crc      = int.from_bytes(packet[idx:idx+4], 'big'); idx += 4
+
+    data = packet[idx:idx + data_len]
+    return filename, data, crc, backup_ts, ctime, mtime, uid, gid, mode, flags
 
 def generate_tone(frequency, duration, sample_rate):
     t = np.linspace(0, duration, int(sample_rate * duration), False)
@@ -247,48 +307,97 @@ def record_and_decode(bitrate):
 
 
 def decode_signal(signal, bitrate):
+    """
+    Demodulate bits → bytes → Reed-Solomon decode → parse header → restore metadata → write file
+    """
     print(f"[DECODE] Decoding {len(signal)} samples @ {bitrate}bps")
+    # 1) Demodulate to raw bits
     bits = detect_bits(signal, 1/bitrate, SAMPLE_RATE)
     print(f"[DECODE] Got {len(bits)} bits.")
 
-    idx = find_sync(bits)
-    if idx is None:
+    # 2) Find sync and trim
+    start_idx = find_sync(bits)
+    if start_idx is None:
         print("[DECODE] No sync; abort")
         return
-    data_bits = bits[idx:]
+    data_bits = bits[start_idx:]
+
+    # 3) Find end marker and trim
     end_idx = find_end_marker(data_bits)
     if end_idx is not None:
         data_bits = data_bits[:end_idx]
     else:
         print("[DECODE] No end marker; using full stream.")
 
+    # 4) Pack bits into bytes
     raw = bits_to_bytes(data_bits)
+
+    # 5) Reed–Solomon decode with stats
     print("[DECODE] Applying RS decode...")
     decoded, rs_stats = rs_decode_blocks(raw)
+    print(
+        f"[DECODE] RS blocks: {rs_stats['total_blocks']}, "
+        f"symbols corrected: {rs_stats['symbols_corrected']}, "
+        f"uncorrectable: {rs_stats['uncorrectable_blocks']}"
+    )
 
-    print(f"[DECODE] RS blocks: {rs_stats['total_blocks']}, "
-          f"symbols corrected: {rs_stats['symbols_corrected']}, "
-          f"uncorrectable: {rs_stats['uncorrectable_blocks']}")
-
+    # 6) Parse header & metadata
     try:
-        fname, payload, crc = parse_packet(decoded)
-        print(f"[DECODE] Filename: {fname}")
-        if zlib.crc32(payload) != crc:
-            print(f"[DECODE] CRC mismatch: expected {crc}")
-        else:
-            print("[DECODE] CRC OK")
-            # decompress
-            try:
-                outdata = lzma.decompress(payload)
-                print("[DECODE] Decompression successful.")
-            except Exception as e:
-                print(f"[DECODE] Decompression failed: {e}")
-                outdata = payload
-            with open(fname,'wb') as f:
-                f.write(outdata)
-            print(f"[DECODE] Wrote output file: {fname}")
+        (
+            fname,
+            payload,
+            crc,
+            backup_ts,
+            ctime,
+            mtime,
+            uid,
+            gid,
+            mode,
+            flags,
+        ) = parse_packet(decoded)
     except Exception as e:
-        print(f"[DECODE] Failed parse/write: {e}")
+        print(f"[DECODE] Failed to parse header: {e}")
+        return
+
+    # 7) Show header info
+    print(f"[DECODE] Filename:         {fname}")
+    print(f"[DECODE] Backup timestamp: {datetime.datetime.fromtimestamp(backup_ts)}")
+    print(f"[DECODE] Original ctime:   {datetime.datetime.fromtimestamp(ctime)}")
+    print(f"[DECODE] Original mtime:   {datetime.datetime.fromtimestamp(mtime)}")
+    print(f"[DECODE] UID: {uid}, GID: {gid}, Mode: {oct(mode)}, Flags: {flags}")
+
+    # NEW: report compression flag
+    if flags & 1:
+        print("[DECODE] Compression flag: SET  (payload was compressed at encode time)")
+    else:
+        print("[DECODE] Compression flag: NOT SET")
+
+    # 8) Decompress payload if flag bit0 set
+    if flags & 1:
+        try:
+            payload = lzma.decompress(payload)
+            print("[DECODE] Decompression successful.")
+        except Exception as e:
+            print(f"[DECODE] Decompression failed: {e}")
+
+    # 9) Restore ownership, permissions, and timestamps
+    try:
+        os.chown(fname, uid, gid)
+        os.chmod(fname, mode)
+        os.utime(fname, (mtime, mtime))
+        print("[DECODE] Restored ownership and timestamps.")
+    except PermissionError:
+        print("[DECODE] Warning: insufficient privileges to restore owner/group.")
+    except Exception as e:
+        print(f"[DECODE] Metadata restore failed: {e}")
+
+    # 10) Write file to disk
+    try:
+        with open(fname, 'wb') as f:
+            f.write(payload)
+        print(f"[DECODE] Wrote output file: {fname}")
+    except Exception as e:
+        print(f"[DECODE] Failed to write output file: {e}")
 
 
 def find_end_marker(bits):
@@ -311,28 +420,56 @@ def main():
         parser.print_help(); sys.exit(1)
     args = parser.parse_args()
 
-    if args.mode=='encode':
-        # gather raw data
+    if args.mode == 'encode':
+        # ─── 1) Read raw data ──────────────────────────────────────────────
         if args.data:
-            raw = args.data.encode(); name = "inline_data.txt"
+            raw = args.data.encode()
+            name = "inline_data.txt"
         elif args.inputfile:
-            raw = open(args.inputfile,'rb').read(); name = os.path.basename(args.inputfile)
+            raw = open(args.inputfile, 'rb').read()
+            name = os.path.basename(args.inputfile)
         else:
-            raw = sys.stdin.buffer.read(); name = "stdin_input.bin"
-        print(f"[MAIN] Read      : {len(raw)} bytes from '{name}'")
+            raw = sys.stdin.buffer.read()
+            name = "stdin_input.bin"
+        print(f"[ENCODE] Read data: {len(raw)} bytes from '{name}'")
 
-        # compress
+        # ─── 2) Gather file metadata ─────────────────────────────────────
+        try:
+            st = os.stat(name)
+            backup_ts = int(time.time())
+            ctime     = int(st.st_ctime)
+            mtime     = int(st.st_mtime)
+            uid       = st.st_uid
+            gid       = st.st_gid
+            mode_perm = st.st_mode & 0o777
+        except FileNotFoundError:
+            backup_ts = ctime = mtime = uid = gid = mode_perm = 0
+
+        # flag bit0 = LZMA compressed
+        flags = 1  
+
+        print("[ENCODE] Metadata:")
+        print(f"    Backup timestamp: {datetime.datetime.fromtimestamp(backup_ts)}")
+        print(f"    Original ctime:   {datetime.datetime.fromtimestamp(ctime)}")
+        print(f"    Original mtime:   {datetime.datetime.fromtimestamp(mtime)}")
+        print(f"    UID: {uid}, GID: {gid}, Mode: {oct(mode_perm)}, Flags: {flags}")
+
+        # ─── 3) Compress ───────────────────────────────────────────────────
         comp = lzma.compress(raw, preset=LZMA_PRESET)
         saved = len(raw) - len(comp)
-        pct   = 100.0 * (saved / len(raw)) if raw else 0
-        print(f"[MAIN] Compressed: {len(comp)} bytes (saved {saved} bytes, {pct:.1f}% reduction)")
+        pct   = 100.0 * saved / len(raw) if raw else 0
+        print(f"[ENCODE] Compressed: {len(comp)} bytes "
+          f"(saved {saved} bytes, {pct:.1f}% reduction)")
 
-        # 3) CRC
+        # ─── 4) CRC32 ──────────────────────────────────────────────────────
         crc = zlib.crc32(comp)
-        print(f"[MAIN] CRC32     : 0x{crc:08X}")
+        print(f"[ENCODE] CRC32: 0x{crc:08X}")
 
+        # ─── 5) Packetize ─────────────────────────────────────────────────
         packet = build_packet(name, comp)
-        print(f"[MAIN] Packet    : {len(packet)} bytes (hdr+name+len+crc+data)")
+        print(f"[ENCODE] Packet: {len(packet)} bytes (hdr+data+crc)")
+
+        # ─── 6) Modulate & write ──────────────────────────────────────────
         encode(packet, args.file, args.bitrate)
 
     else:
