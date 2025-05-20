@@ -1,86 +1,117 @@
-# ass
-Audio Serial Storage (ASS) - Save data to cassette
+# ASS: Audio Serial Storage
 
-A simple FSK tape-style encoder/decoder with Reed–Solomon error correction and LZMA compression. Originally inspired by 8‑bit microcomputers and the now‑deprecated ctape project. In addition to storing data on cassette tape, ASS can be used for low‑bandwidth data communications (e.g. amateur radio).
+**Save data to cassette** via FSK modulation, Reed–Solomon ECC, and LZMA compression.
 
-#Features
+A simple tape-style encoder/decoder originally inspired by 8‑bit microcomputers and the now‑deprecated [ctape project](https://github.com/windytan/ctape). Beyond cassette storage, ASS supports low‑bandwidth data links (e.g., amateur radio).
 
-FSK Modulation/Demodulation at 1200 Hz / 2400 Hz tones
+---
 
-LZMA Compression (preset 9 + extreme) before transmission
+## Features
 
-Reed–Solomon (255, 223) error correction (up to 16 byte errors/block)
+* **FSK Modulation/Demodulation** at 1200 Hz / 2400 Hz tones
+* **LZMA Compression** (preset 9 + extreme) before transmission
+* **Reed–Solomon (255, 223)** error correction (up to 16 byte-errors per block)
+* **CRC32** payload integrity check
+* **Live bit‑stream display** in console
+* Read/write from WAV file or live microphone input
 
-CRC32 validation of payload integrity
+---
 
-Live bit‑stream display in console
+## Prerequisites
 
-Read/write from WAV file or live microphone input
+* **Python** 3.7+
 
-#Prerequisites
+### Dependencies
 
-Python 3.7+
+Install via `pip`:
 
-#Dependencies:
+```bash
+pip install numpy sounddevice reedsolo
+```
 
-pip install numpy sounddevice reedsolo lzma-wave
+> *`lzma` is in the standard library. No extra package required.*
 
-(lzma is part of the standard library; lzma-wave is a placeholder if needed for wave support.)
+---
 
-#Installation
+## Installation
 
-Clone this repository and make the script executable:
-
+```bash
 git clone https://your.repo.url/ass.git
 cd ass
 chmod +x ass-reed.py
+```
 
-#Usage
+---
 
-Encoding
+## Usage
 
-File input:
+### Encoding
 
-./ass-reed.py encode output.wav --inputfile example.bin --bitrate 100
+* **File input**:
 
-Std‑in:
+  ```bash
+  ./ass-reed.py encode output.wav \
+      --inputfile example.bin \
+      --bitrate 100
+  ```
 
-cat example.txt | ./ass-reed.py encode output.wav --bitrate 100
+* **Std‑in**:
 
-Inline string:
+  ```bash
+  cat example.txt | \
+      ./ass-reed.py encode output.wav \
+      --bitrate 100
+  ```
 
-./ass-reed.py encode output.wav --data "Hello, world!" --bitrate 100
+* **Inline string**:
 
-Decoding
+  ```bash
+  ./ass-reed.py encode output.wav \
+      --data "Hello, world!" \
+      --bitrate 100
+  ```
 
-From file:
+### Decoding
 
-./ass-reed.py decode input.wav --bitrate 100
+* **From file**:
 
-Live via microphone:
+  ```bash
+  ./ass-reed.py decode input.wav \
+      --bitrate 100
+  ```
 
-./ass-reed.py decode - --bitrate 100
+* **Live via microphone**:
 
-After decoding, the recovered file will be saved in the current directory.
+  ```bash
+  ./ass-reed.py decode - \
+      --bitrate 100
+  ```
 
-#Inspiration
+Decoded output is written to the original filename in the current directory.
 
-My love of classic 8‑bit microcomputers and their tape storage
+---
 
-The deprecated ctape project: https://github.com/windytan/ctape
+## Inspiration
 
-Low‑bandwidth digital modes in amateur radio
+* My love of classic **8‑bit microcomputers** and their cassette storage
+* The deprecated **ctape** project: [https://github.com/windytan/ctape](https://github.com/windytan/ctape)
+* Low‑bandwidth digital modes in **amateur radio**
 
-#Disclaimer
+---
+
+## Disclaimer
 
 This code was partially generated and reviewed with the assistance of a large language model (LLM). It is provided as a work in progress; use at your own risk. Contributions, bug reports, and pull requests are welcome.
 
-#To Do
+---
 
-Add MFSK encoding to increase achievable data rates
+## To Do
 
-Improve burst‑error handling with interleaving
+* Add **MFSK encoding** to increase data rates
+* Improve burst‑error handling with interleaving
+* (Optional) GUI or cross‑platform installer
 
+---
 
-
+*Have fun sending bits the old‑school way!*
 
