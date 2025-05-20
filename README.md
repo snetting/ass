@@ -134,7 +134,7 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile INPUTFILE]
 ./ass.py decode - --bitrate 2400 
 
 # Experimental 8-FSK at 100 bps bit-rate (effectively 300 bps)
-./ass.py encode out-mfsk.wav --inputfile data.bin --bitrate 1200 --mfsk 8
+./ass.py encode out-mfsk.wav --inputfile data.bin --bitrate 100 --mfsk 8
 
 # Decode a 16-FSK transmission
 ./ass.py decode in-mfsk16.wav --bitrate 1200 --mfsk 16
