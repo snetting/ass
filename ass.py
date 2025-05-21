@@ -512,6 +512,13 @@ def main():
         help="Number of FSK tones (2 = default FSK, 4/8/16 = MFSK)"
     )
 
+    parser.add_argument(
+        '--noclamp',
+        action='store_true',
+        dest='noclamp',
+        help='Print clamp warning but do not enforce bitrate clamping'
+    )
+
     # mutually exclusive compression flags
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -603,30 +610,37 @@ def main():
         print(f"[ENCODE] Packet: {len(packet)} bytes (hdr+data+crc)")
 
         # --- 6) Clamp bitrate for MFSK
-        if args.mfsk > 2:
-            # compute maximum reliable bit_rate
-            max_bitrate = int((FREQ_1 - FREQ_0) / (args.mfsk - 1))
-            if args.bitrate > max_bitrate:
-                print(f"[ENCODE] Warning: {args.mfsk}-FSK at {args.bitrate}bps "
-                f"will have Δf ≃ {args.bitrate}Hz > tone spacing "
-                f"{max_bitrate:.1f}Hz; clamping to {max_bitrate}bps.")
+        #if args.mfsk > 2:
+        # compute maximum reliable bit_rate
+        tone_spacing = int((FREQ_1 - FREQ_0) / (args.mfsk - 1))
+        max_bitrate  = int(tone_spacing)
+        if args.bitrate > max_bitrate:
+            print(f"[MAIN] Warning: {args.mfsk}-FSK at {args.bitrate}bps "
+                  f"gives Δf_res≈{args.bitrate}Hz > tone spacing {tone_spacing:.1f}Hz;")
+            if not args.noclamp:
+                print(f"[MAIN]   → clamping to {max_bitrate}bps")
                 args.bitrate = max_bitrate
-
+            else:
+                print(f"[MAIN]   → WARNING: CLAMP BYPASSED (forced {args.bitrate}bps)")
 
         # ─── 6) Modulate & write ──────────────────────────────────────────
         encode(packet, args.file, args.bitrate, args.mfsk)
 
     else:
         print("[MAIN] Entering decode mode")
-        if args.mfsk > 2:
-            # compute maximum reliable bit_rate
-            max_bitrate = int((FREQ_1 - FREQ_0) / (args.mfsk - 1))
-            if args.bitrate > max_bitrate:
-                print(f"[MAIN] Warning: {args.mfsk}-FSK at {args.bitrate}bps "
-                    f"will have Δf ≃ {args.bitrate}Hz > tone spacing "
-                    f"{max_bitrate:.1f}Hz; clamping to {max_bitrate}bps.")
+        
+        # compute maximum reliable bit_rate
+        # ─── clamp bitrate for any MFSK (unless --noclamp) ──────────────── 
+        tone_spacing = (FREQ_1 - FREQ_0) / (args.mfsk - 1)
+        max_bitrate = int(tone_spacing)
+        if args.bitrate > max_bitrate:
+            print(f"[MAIN] Warning: {args.mfsk}-FSK at {args.bitrate}bps "
+                  f"gives Δf_res≈{args.bitrate}Hz > tone spacing {tone_spacing:.1f}Hz;")
+            if not args.noclamp:
+                print(f"[MAIN]   → clamping to {max_bitrate}bps")
                 args.bitrate = max_bitrate
-
+            else:
+                print(f"[MAIN]   → WARNING: CLAMP BYPASSED (forced {args.bitrate}bps)")
         if args.file=='-':
             record_and_decode(args.bitrate, args.mfsk)
         else:

@@ -86,7 +86,8 @@ Usage
 ```
 usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile INPUTFILE]
              [--bitrate BITRATE] [--mfsk {2,4,8,16}]
-             [--alwayscompress | --nocompress | --autocompress] file
+             [--alwayscompress | --nocompress | --autocompress] 
+             [--noclamp] file
 ```
 
 -   **Positional arguments**:
@@ -106,6 +107,8 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile INPUTFILE]
     -   `--bitrate BITRATE` : Bitrate in bits/sec (default: 1200)
     
     -   `--mfsk {2,4,8,16}` : Number of tones (2 = standard FSK; 4/8/16 = experimental MFSK)
+
+    -   `--noclamp` : bypass bitrate clamping (use with care!
 
     -   **Compression modes** (mutually exclusive):
 
@@ -140,6 +143,27 @@ usage: ass.py [-h] {encode,decode} [--data DATA] [--inputfile INPUTFILE]
 ./ass.py decode in-mfsk16.wav --bitrate 1200 --mfsk 16
 
 ```
+
+# Bitrate Clamping
+
+To ensure reliable tone discrimination, ASS by default limits your requested `--bitrate` so that the FFT’s frequency resolution (≈ bitrate Hz) does not exceed the spacing between adjacent M-FSK tones:
+
+```
+tone_spacing = (FREQ_1 - FREQ_0) / (M - 1)
+max_bitrate  = floor(tone_spacing)
+```
+
+- **2-FSK (M=2)**: tone_spacing = 1200 Hz → max_bitrate = 1200 bps  
+- **16-FSK (M=16)**: tone_spacing ≈ 1200 Hz / 15 ≈ 80 Hz → max_bitrate = 80 bps → effective bit-rate = 80 × 4 = 320 bps  
+
+If you request a higher bitrate, ASS prints:
+
+```
+[MAIN] Warning: 8-FSK at 300 bps gives Δf_res≈300 Hz > tone spacing 171.4 Hz;
+    → clamping to 171 bps
+```
+
+Add `--noclamp` to bypass the clamp (you’ll still see the warning, but ASS will respect your requested bitrate).
 
 Decoded files are written with their original names, metadata, ownership, and permissions.
 
